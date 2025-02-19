@@ -29,17 +29,14 @@ class Environment:
         self.values = values if values is not None else {}
         self.types = types if types is not None else {}
         self.parent = parent
-        print(f"Created new environment with values: {self.values}")
 
     def define(self, name: str, value: Any, type_name: str) -> None:
         """Define a new variable in the current scope."""
-        print(f"Defining {name} with value {value} of type {type_name}")
         self.values[name] = value
         self.types[name] = type_name
 
     def assign(self, name: str, value: Any) -> None:
         """Assign a value to an existing variable."""
-        print(f"Attempting to assign {value} to {name}")
         env = self.resolve(name)
         if env:
             # Type check the assignment
@@ -50,7 +47,6 @@ class Environment:
             try:
                 converted_value = type_checker.validate_assignment(target_type, value, value_type_annotation)
                 env.values[name] = converted_value
-                print(f"Successfully assigned {converted_value} to {name}")
             except TypeError as e:
                 raise RuntimeError(str(e))
         else:
@@ -58,10 +54,8 @@ class Environment:
 
     def get(self, name: str) -> Any:
         """Get the value of a variable."""
-        print(f"Looking up variable {name}")
         env = self.resolve(name)
         if env:
-            print(f"Found {name} with value {env.values[name]} in scope")
             return env.values[name]
         raise RuntimeError(f"Undefined variable '{name}'")
 
@@ -205,6 +199,8 @@ class Interpreter:
             return str(expression.value)
         elif expression.type == TokenType.BOOL_LIT:
             return bool(expression.value)
+        elif expression.type == TokenType.EMPTY:
+            return []  # Empty collections are represented as empty lists
         return expression.value
 
     def evaluate_identifier(self, expression: Identifier) -> Any:
@@ -263,6 +259,10 @@ class Interpreter:
             return not operand
             
         raise RuntimeError(f"Unknown unary operator: {op_type}")
+
+    def evaluate_arrayliteral(self, expression: ArrayLiteral) -> Any:
+        """Evaluate an array literal."""
+        return [self.evaluate(element) for element in expression.elements]
 
     def execute_functiondecl(self, statement: FunctionDecl) -> None:
         """Execute a function declaration."""

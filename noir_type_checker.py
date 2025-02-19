@@ -143,10 +143,23 @@ class TypeChecker:
             return "String"
         elif isinstance(value, bool):
             return "Bool"
+        elif isinstance(value, list):
+            # Empty list can be any collection type
+            if not value:
+                return "Collection"
+            # For non-empty lists, infer array type
+            return "Array"
         return "Unknown"
 
     def validate_assignment(self, target_type: TypeAnnotation, value: Any, value_type: TypeAnnotation) -> Any:
         """Validate and possibly convert a value for assignment."""
+        # Handle empty collections
+        if value_type.name == "Collection" and isinstance(value, list) and not value:
+            # Empty list can be assigned to any collection type
+            if target_type.name in ["Array", "Dict", "Set", "OSet"]:
+                return value
+            raise TypeError(f"Cannot assign empty collection to non-collection type {target_type.name}")
+
         # Handle generic type assignments
         if target_type.is_generic() or target_type.is_instantiated():
             if not isinstance(value_type, TypeAnnotation):

@@ -101,7 +101,8 @@ class Parser:
                 if stmt is not None:  # Only add non-None statements
                     statements.append(stmt)
             except ParseError as e:
-                print(f"Parse error: {e}")  # Add error printing
+                # Keep error logging
+                print(f"Parse error: {e}")
                 self.synchronize()
 
         # Check for any unclosed blocks at the end of parsing
