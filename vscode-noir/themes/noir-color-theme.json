@@ -1,0 +1,55 @@
+{
+    "name": "Noir Theme",
+    "colors": {},
+    "tokenColors": [
+        {
+            "scope": "comment.line.double-slash.noir",
+            "settings": {
+                "foreground": "#6A9955"
+            }
+        },
+        {
+            "scope": "punctuation.delimiter.function.noir",
+            "settings": {
+                "foreground": "#FF69B4"
+            }
+        },
+        {
+            "scope": "keyword.other.func.noir",
+            "settings": {
+                "foreground": "#C586C0",
+                "fontStyle": "bold"
+            }
+        },
+        {
+            "scope": [
+                "entity.name.function.noir",
+                "entity.name.function.definition.noir"
+            ],
+            "settings": {
+                "foreground": "#DCDCAA"
+            }
+        },
+        {
+            "scope": "storage.type.noir",
+            "settings": {
+                "foreground": "#4EC9B0"
+            }
+        },
+        {
+            "scope": "string.quoted.double.noir",
+            "settings": {
+                "foreground": "#CE9178"
+            }
+        },
+        {
+            "scope": [
+                "constant.numeric.integer.noir",
+                "constant.numeric.float.noir"
+            ],
+            "settings": {
+                "foreground": "#B5CEA8"
+            }
+        }
+    ]
+} 

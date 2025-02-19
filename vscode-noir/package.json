@@ -1,0 +1,45 @@
+{
+  "name": "vscode-noir",
+  "displayName": "Noir Language",
+  "description": "Syntax highlighting for the Noir programming language",
+  "version": "0.0.2",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/apekshik/noir-language"
+  },
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "noir",
+        "aliases": [
+          "Noir",
+          "noir"
+        ],
+        "extensions": [
+          ".nr"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "noir",
+        "scopeName": "source.noir",
+        "path": "./syntaxes/noir.tmLanguage.json"
+      }
+    ],
+    "themes": [
+      {
+        "label": "Noir Theme",
+        "uiTheme": "vs-dark",
+        "path": "./themes/noir-color-theme.json"
+      }
+    ]
+  }
+}

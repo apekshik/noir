@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+
+import sys
+import os
+from typing import Optional, List
+import argparse
+from noir_lexer import lex, LexerError
+from noir_parser import Parser, ParseError
+from noir_interpreter import Interpreter, RuntimeError
+
+VERSION = "0.1.0"
+
+class NoirRunner:
+    def __init__(self, debug: bool = False):
+        self.debug = debug
+        self.interpreter = Interpreter()
+
+    def run_file(self, filepath: str) -> None:
+        """Run a Noir source file."""
+        try:
+            with open(filepath, 'r') as f:
+                source = f.read()
+            
+            if self.debug:
+                print(f"Source code:\n{source}\n")
+            
+            # Lexical analysis
+            try:
+                tokens = lex(source)
+                if self.debug:
+                    print("Tokens:")
+                    for token in tokens:
+                        print(f"{token.type}: '{token.value}' at line {token.line}, column {token.column}")
+                    print()
+            except LexerError as e:
+                print(f"Lexer error: {str(e)}")
+                sys.exit(1)
+            
+            # Parsing
+            try:
+                parser = Parser(tokens)
+                ast = parser.parse()
+                if self.debug:
+                    from ast_printer import print_ast
+                    print("AST:")
+                    print(print_ast(ast))
+                    print()
+            except ParseError as e:
+                print(f"Parser error: {str(e)}")
+                sys.exit(1)
+            
+            # Interpretation
+            try:
+                self.interpreter.interpret(ast)
+            except RuntimeError as e:
+                print(f"Runtime error: {str(e)}")
+                sys.exit(1)
+                
+        except FileNotFoundError:
+            print(f"Error: Could not find file '{filepath}'")
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error: {str(e)}")
+            sys.exit(1)
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Noir Programming Language",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  noir example.nr         Run a Noir source file
+  noir -d example.nr     Run with debug output
+  noir --version         Show version information
+        """
+    )
+    
+    parser.add_argument(
+        'file',
+        nargs='?',
+        help='The Noir source file to execute'
+    )
+    
+    parser.add_argument(
+        '-d', '--debug',
+        action='store_true',
+        help='Enable debug output'
+    )
+    
+    parser.add_argument(
+        '-v', '--version',
+        action='version',
+        version=f'Noir Programming Language v{VERSION}'
+    )
+    
+    args = parser.parse_args()
+    
+    if not args.file:
+        parser.print_help()
+        sys.exit(1)
+    
+    if not args.file.endswith('.nr'):
+        print("Error: Source file must have .nr extension")
+        sys.exit(1)
+        
+    runner = NoirRunner(debug=args.debug)
+    runner.run_file(args.file)
+
+if __name__ == "__main__":
+    main()
