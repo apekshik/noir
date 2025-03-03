@@ -6,7 +6,8 @@ from noir_ast import (
     VariableDecl, Assignment, Block, IfStatement, ForLoop, WhileLoop,
     FunctionParam, FunctionDecl, FunctionCall, ReturnStatement,
     ExpressionStmt, TypeCast, ArrayLiteral, MethodCall, ArrayAccess,
-    LIST_TYPE, SET_TYPE, ORDERED_SET_TYPE, DICTIONARY_TYPE
+    LIST_TYPE, SET_TYPE, ORDERED_SET_TYPE, DICTIONARY_TYPE,
+    EnumDeclaration, EnumVariant, ProtocolDeclaration, ProtocolProperty, ProtocolMethod
 )
 
 class ParseError(Exception):
@@ -110,30 +111,171 @@ class Parser:
         return statements
 
     def declaration(self) -> Statement:
-        """Parse a declaration."""
-        try:
-            if self.match(TokenType.FUNC):
-                identifier = self.consume(TokenType.IDENTIFIER, "Expected function name after 'func'.")
-                return self.finish_function_declaration(identifier)
-            elif self.match(TokenType.IDENTIFIER):
-                identifier_token = self.previous()
-                # Look ahead to see if this is a variable declaration
-                if self.match(TokenType.COLON):
-                    return self.finish_variable_declaration(identifier_token)
-                else:
-                    # This is an expression statement (could be a function call)
-                    self.current -= 1  # Go back to the identifier
-                    return self.statement()
-            elif self.match(TokenType.IF, TokenType.FOR, TokenType.WHILE, TokenType.RETURN):
-                return self.statement()
-            elif self.is_at_end():
-                return None
-            else:
-                raise ParseError("Expected declaration or statement.", self.peek())
+        """Parse a declaration (variables, functions, etc.)"""
+        if self.match(TokenType.IDENTIFIER):
+            # Check for variable declarations with type annotations
+            if self.check(TokenType.COLON):
+                return self.finish_variable_declaration(self.previous())
+                
+            # Otherwise, this might be an assignment
+            self.current -= 1  # Rewind to re-read the identifier
             
-        except ParseError as error:
-            self.synchronize()
-            return None
+        if self.match(TokenType.FUNC):
+            # Function declaration, consume the function name
+            if self.match(TokenType.IDENTIFIER):
+                return self.finish_function_declaration(self.previous())
+            else:
+                raise ParseError("Expected function name after 'func' keyword", self.peek())
+                
+        # Check for enum declaration
+        if self.match(TokenType.ENUM):
+            return self.enum_declaration()
+            
+        # Check for protocol declaration
+        if self.match(TokenType.PROTOCOL):
+            return self.protocol_declaration()
+            
+        # No declaration keyword found, try parsing a statement
+        return self.statement()
+        
+    def enum_declaration(self) -> EnumDeclaration:
+        """Parse an enum declaration"""
+        # Parse the enum name
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected enum name")
+        name = Identifier(name_token.value)
+        
+        # Check if this enum conforms to a protocol
+        protocol_conformance = None
+        if self.match(TokenType.CONFORMANCE) or self.match(TokenType.CONFORMS):
+            protocol_name = self.consume(TokenType.IDENTIFIER, "Expected protocol name after conformance operator")
+            protocol_conformance = Identifier(protocol_name.value)
+        
+        # Expect a colon after the enum name (and optional protocol conformance)
+        self.consume(TokenType.COLON, "Expected ':' after enum name")
+        
+        # Begin tracking this block for :: termination
+        self.begin_block("enum", name_token.line, name_token.column)
+        
+        # Parse the enum variants
+        variants = []
+        
+        # Skip any newlines and comments after the colon
+        while self.match(TokenType.NEWLINE, TokenType.COMMENT):
+            pass
+            
+        # Parse variants until we reach the :: terminator
+        while not self.check(TokenType.DOUBLE_COLON) and not self.is_at_end():
+            # Skip newlines and comments between variants
+            while self.match(TokenType.NEWLINE, TokenType.COMMENT):
+                pass
+                
+            # Parse a variant
+            if self.match(TokenType.IDENTIFIER):
+                variant_name = Identifier(self.previous().value)
+                variants.append(EnumVariant(variant_name))
+                
+                # Skip newlines and comments after a variant
+                while self.match(TokenType.NEWLINE, TokenType.COMMENT):
+                    pass
+            else:
+                # If we don't find an identifier, break out of the loop
+                # This allows for trailing newlines before the :: terminator
+                break
+        
+        # Consume the :: terminator
+        self.consume(TokenType.DOUBLE_COLON, "Expected '::' to terminate enum declaration")
+        
+        # End this block
+        self.end_block()
+        
+        return EnumDeclaration(name, variants, protocol_conformance)
+        
+    def protocol_declaration(self) -> ProtocolDeclaration:
+        """Parse a protocol declaration"""
+        # Parse the protocol name
+        name_token = self.consume(TokenType.IDENTIFIER, "Expected protocol name")
+        name = Identifier(name_token.value)
+        
+        # Expect a colon after the protocol name
+        self.consume(TokenType.COLON, "Expected ':' after protocol name")
+        
+        # Begin tracking this block for :: termination
+        self.begin_block("protocol", name_token.line, name_token.column)
+        
+        # Parse protocol members (properties and methods)
+        properties = []
+        methods = []
+        
+        # Skip any newlines and comments after the colon
+        while self.match(TokenType.NEWLINE, TokenType.COMMENT):
+            pass
+            
+        # Parse members until we reach the :: terminator
+        while not self.check(TokenType.DOUBLE_COLON) and not self.is_at_end():
+            # Skip newlines and comments between members
+            while self.match(TokenType.NEWLINE, TokenType.COMMENT):
+                pass
+                
+            # Check for empty keyword for empty protocol
+            if self.match(TokenType.EMPTY):
+                # Skip newlines and comments after empty
+                while self.match(TokenType.NEWLINE, TokenType.COMMENT):
+                    pass
+                break
+                
+            # Parse a member (property or method)
+            if self.match(TokenType.IDENTIFIER):
+                member_name = Identifier(self.previous().value)
+                
+                # If followed by a colon, it's a property
+                if self.match(TokenType.COLON):
+                    type_annotation = self.parse_type_annotation()
+                    properties.append(ProtocolProperty(member_name, type_annotation))
+                # If followed by parentheses, it's a method
+                elif self.match(TokenType.LPAREN):
+                    # Parse parameters
+                    params = []
+                    if not self.check(TokenType.RPAREN):
+                        # Parse first parameter
+                        param_name = self.consume(TokenType.IDENTIFIER, "Expected parameter name")
+                        self.consume(TokenType.COLON, "Expected ':' after parameter name")
+                        param_type = self.parse_type_annotation()
+                        params.append(FunctionParam(Identifier(param_name.value), param_type))
+                        
+                        # Parse additional parameters
+                        while self.match(TokenType.COMMA):
+                            param_name = self.consume(TokenType.IDENTIFIER, "Expected parameter name")
+                            self.consume(TokenType.COLON, "Expected ':' after parameter name")
+                            param_type = self.parse_type_annotation()
+                            params.append(FunctionParam(Identifier(param_name.value), param_type))
+                    
+                    # Consume closing parenthesis
+                    self.consume(TokenType.RPAREN, "Expected ')' after parameters")
+                    
+                    # Parse return type if any
+                    return_type = None
+                    if self.match(TokenType.ARROW):
+                        return_type = self.parse_type_annotation()
+                        
+                    methods.append(ProtocolMethod(member_name, params, return_type))
+                else:
+                    raise ParseError("Expected ':' or '(' after member name", self.peek())
+                    
+                # Skip newlines and comments after a member
+                while self.match(TokenType.NEWLINE, TokenType.COMMENT):
+                    pass
+            else:
+                # If we don't find an identifier, break out of the loop
+                # This allows for trailing newlines before the :: terminator
+                break
+        
+        # Consume the :: terminator
+        self.consume(TokenType.DOUBLE_COLON, "Expected '::' to terminate protocol declaration")
+        
+        # End this block
+        self.end_block()
+        
+        return ProtocolDeclaration(name, properties, methods)
 
     def finish_variable_declaration(self, identifier_token: Token) -> VariableDecl:
         """Parse the rest of a variable declaration after seeing the identifier and colon."""

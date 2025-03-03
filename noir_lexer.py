@@ -21,6 +21,11 @@ class TokenType(Enum):
     AND = auto()
     OR = auto()
     FUNC = auto()
+    ENUM = auto()     # New keyword for enum declarations
+    PROTOCOL = auto() # New keyword for protocol declarations
+    CONFORMS = auto() # New keyword for protocol conformance
+    MATCH = auto()    # New keyword for pattern matching
+    SELF = auto()     # New keyword for referencing the enum/struct instance
     
     # Types
     INT = auto()
@@ -78,6 +83,7 @@ class TokenType(Enum):
     
     # New token type
     BANG = auto()        # For the '!' operator
+    CONFORMANCE = auto() # For the '<-' protocol conformance operator
 
 @dataclass
 class Token:
@@ -112,6 +118,7 @@ class Lexer:
             'thru': TokenType.THRU,
             'by': TokenType.BY,
             'empty': TokenType.EMPTY,
+            'func': TokenType.FUNC,
             'Int': TokenType.INT,
             'Float': TokenType.FLOAT,
             'Double': TokenType.DOUBLE,
@@ -120,9 +127,11 @@ class Lexer:
             'Bool': TokenType.BOOL,
             'Set': TokenType.SET,
             'OSet': TokenType.OSET,
-            'and': TokenType.AND,
-            'or': TokenType.OR,
-            'func': TokenType.FUNC
+            'enum': TokenType.ENUM,
+            'protocol': TokenType.PROTOCOL,
+            'conforms': TokenType.CONFORMS,
+            'match': TokenType.MATCH,
+            'self': TokenType.SELF
         }
         
     def peek(self, ahead: int = 0) -> str:
@@ -249,11 +258,11 @@ class Lexer:
         self.add_token(TokenType.COMMENT, comment)
     
     def tokenize(self) -> List[Token]:
-        """Convert source code into a list of tokens."""
+        """Tokenize the source code into a list of tokens."""
         while self.pos < len(self.source):
             char = self.peek()
             
-            # Handle whitespace
+            # Skip whitespace
             if self.is_whitespace(char):
                 self.advance()
                 continue
@@ -262,16 +271,23 @@ class Lexer:
             if char == '\n':
                 self.add_token(TokenType.NEWLINE, '\n')
                 self.advance()
+                self.line += 1
+                self.column = 1
                 continue
                 
-            # Handle numbers
-            if self.is_digit(char):
-                self.scan_number()
+            # Handle comments
+            if char == '/' and self.peek(1) == '/':
+                self.scan_comment()
                 continue
                 
             # Handle identifiers and keywords
             if self.is_alpha(char):
                 self.scan_identifier()
+                continue
+                
+            # Handle numbers
+            if self.is_digit(char):
+                self.scan_number()
                 continue
                 
             # Handle string literals
@@ -285,77 +301,80 @@ class Lexer:
                 continue
                 
             # Handle operators and delimiters
-            if char == '/':
-                if self.peek(1) == '/':
-                    self.scan_comment()
+            if char == '+':
+                self.add_token(TokenType.PLUS, '+')
+            elif char == '-':
+                if self.peek(1) == '>':
+                    self.add_token(TokenType.ARROW, '->')
+                    self.advance()  # Consume the '-'
+                    self.advance()  # Consume the '>'
                 else:
-                    self.add_token(TokenType.DIVIDE, self.advance())
-                continue
-                
-            # Handle two-character tokens
-            if char == ':' and self.peek(1) == ':':
-                self.advance()  # Consume first ':'
-                self.advance()  # Consume second ':'
-                self.add_token(TokenType.DOUBLE_COLON, '::')
-                continue
-                
-            if char == '-' and self.peek(1) == '>':
-                self.advance()  # Consume '-'
-                self.advance()  # Consume '>'
-                self.add_token(TokenType.ARROW, '->')
-                continue
-                
-            if char == '=' and self.peek(1) == '=':
-                self.advance()  # Consume first '='
-                self.advance()  # Consume second '='
-                self.add_token(TokenType.EQUALS, '==')
-                continue
-                
-            if char == '!' and self.peek(1) == '=':
-                self.advance()  # Consume '!'
-                self.advance()  # Consume '='
-                self.add_token(TokenType.NOT_EQUALS, '!=')
-                continue
-                
-            if char == '<' and self.peek(1) == '=':
-                self.advance()  # Consume '<'
-                self.advance()  # Consume '='
-                self.add_token(TokenType.LESS_EQUAL, '<=')
-                continue
-                
-            if char == '>' and self.peek(1) == '=':
-                self.advance()  # Consume '>'
-                self.advance()  # Consume '='
-                self.add_token(TokenType.GREATER_EQUAL, '>=')
-                continue
+                    self.add_token(TokenType.MINUS, '-')
+            elif char == '*':
+                self.add_token(TokenType.MULTIPLY, '*')
+            elif char == '/':
+                self.add_token(TokenType.DIVIDE, '/')
+            elif char == '%':
+                self.add_token(TokenType.MODULO, '%')
+            elif char == '=':
+                if self.peek(1) == '=':
+                    self.add_token(TokenType.EQUALS, '==')
+                    self.advance()  # Consume the first '='
+                    self.advance()  # Consume the second '='
+                else:
+                    self.add_token(TokenType.ASSIGN, '=')
+            elif char == '!':
+                if self.peek(1) == '=':
+                    self.add_token(TokenType.NOT_EQUALS, '!=')
+                    self.advance()  # Consume the '!'
+                    self.advance()  # Consume the '='
+                else:
+                    self.add_token(TokenType.BANG, '!')
+            elif char == '<':
+                if self.peek(1) == '=':
+                    self.add_token(TokenType.LESS_EQUAL, '<=')
+                    self.advance()  # Consume the '<'
+                    self.advance()  # Consume the '='
+                elif self.peek(1) == '-':
+                    self.add_token(TokenType.CONFORMANCE, '<-')
+                    self.advance()  # Consume the '<'
+                    self.advance()  # Consume the '-'
+                else:
+                    self.add_token(TokenType.LESS_THAN, '<')
+            elif char == '>':
+                if self.peek(1) == '=':
+                    self.add_token(TokenType.GREATER_EQUAL, '>=')
+                    self.advance()  # Consume the '>'
+                    self.advance()  # Consume the '='
+                else:
+                    self.add_token(TokenType.GREATER_THAN, '>')
+            elif char == ':':
+                if self.peek(1) == ':':
+                    self.add_token(TokenType.DOUBLE_COLON, '::')
+                    self.advance()  # Consume the first ':'
+                    self.advance()  # Consume the second ':'
+                else:
+                    self.add_token(TokenType.COLON, ':')
+            elif char == '(':
+                self.add_token(TokenType.LPAREN, '(')
+            elif char == ')':
+                self.add_token(TokenType.RPAREN, ')')
+            elif char == '[':
+                self.add_token(TokenType.LBRACKET, '[')
+            elif char == ']':
+                self.add_token(TokenType.RBRACKET, ']')
+            elif char == ',':
+                self.add_token(TokenType.COMMA, ',')
+            elif char == '.':
+                self.add_token(TokenType.DOT, '.')
+            else:
+                # If we get here, we encountered an invalid character
+                raise LexerError(f"Invalid character '{char}' at line {self.line}, column {self.column}")
             
-            # Handle single-character tokens
-            token_map = {
-                '+': TokenType.PLUS,
-                '-': TokenType.MINUS,
-                '*': TokenType.MULTIPLY,
-                '%': TokenType.MODULO,
-                '=': TokenType.ASSIGN,
-                '<': TokenType.LESS_THAN,
-                '>': TokenType.GREATER_THAN,
-                '(': TokenType.LPAREN,
-                ')': TokenType.RPAREN,
-                '[': TokenType.LBRACKET,
-                ']': TokenType.RBRACKET,
-                ':': TokenType.COLON,
-                ',': TokenType.COMMA,
-                '.': TokenType.DOT
-            }
-            
-            if char in token_map:
-                self.add_token(token_map[char], self.advance())
-                continue
-                
-            # If we get here, we encountered an invalid character
-            raise LexerError(f"Invalid character '{char}' at line {self.line}, column {self.column}")
+            self.advance()
             
         # Add EOF token
-        self.add_token(TokenType.EOF, '')
+        self.add_token(TokenType.EOF, "")
         return self.tokens
 
 def lex(source: str) -> List[Token]:

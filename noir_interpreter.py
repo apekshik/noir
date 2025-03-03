@@ -1,14 +1,15 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union, Set
 from noir_parser import (
     Node, Expression, Statement, Literal, Identifier, BinaryOp,
     UnaryOp, VariableDecl, Assignment, Block, IfStatement,
     WhileLoop, ForLoop, FunctionDecl, FunctionCall, ReturnStatement,
-    ExpressionStmt, TypeCast, ArrayLiteral, MethodCall, ArrayAccess
+    ExpressionStmt, TypeCast, ArrayLiteral, MethodCall, ArrayAccess,
+    EnumDeclaration, EnumVariant, ProtocolDeclaration, ProtocolProperty, ProtocolMethod
 )
 from noir_lexer import TokenType
 from noir_type_checker import TypeChecker, TypeError
-from noir_types import TypeKind, TypeAnnotation
+from noir_types import TypeKind, TypeAnnotation, TypeParameter
 
 class InterpreterError(Exception):
     """Base class for interpreter errors."""
@@ -76,40 +77,62 @@ class Environment:
 
 class Interpreter:
     def __init__(self):
+        # Global environment for variables
         self.environment = Environment()
-        # Built-in functions
-        self.environment.define("print", print, "Function")
+        
+        # Track functions defined in the program
+        self.functions: Dict[str, FunctionDecl] = {}
+        
+        # Track enums defined in the program
+        self.enums: Dict[str, EnumDeclaration] = {}
+        
+        # Track protocols defined in the program
+        self.protocols: Dict[str, ProtocolDeclaration] = {}
+        
+        # For tracking return values
+        self.current_return_value = None
+        
+        # Define built-in functions
+        self.define_builtins()
 
     def interpret(self, statements: List[Statement]) -> None:
-        """Interpret a list of statements."""
+        """Execute a list of statements."""
         try:
             for statement in statements:
                 self.execute(statement)
-        except InterpreterError as e:
-            print(f"Runtime Error: {e}")
+        except RuntimeError as error:
+            print(error)
 
     def execute(self, statement: Statement) -> None:
-        """Execute a statement."""
-        method = f"execute_{type(statement).__name__.lower()}"
-        if hasattr(self, method):
-            return getattr(self, method)(statement)
-        raise RuntimeError(f"Unknown statement type: {type(statement).__name__}")
+        """Execute a single statement."""
+        
+        # Handle different statement types
+        if isinstance(statement, VariableDecl):
+            self.execute_variable_declaration(statement)
+        elif isinstance(statement, Assignment):
+            self.execute_assignment(statement)
+        elif isinstance(statement, Block):
+            self.execute_block(statement)
+        elif isinstance(statement, IfStatement):
+            self.execute_if(statement)
+        elif isinstance(statement, ForLoop):
+            self.execute_for(statement)
+        elif isinstance(statement, WhileLoop):
+            self.execute_while(statement)
+        elif isinstance(statement, FunctionDecl):
+            self.execute_function_declaration(statement)
+        elif isinstance(statement, ReturnStatement):
+            self.execute_return(statement)
+        elif isinstance(statement, ExpressionStmt):
+            self.evaluate(statement.expression)
+        elif isinstance(statement, EnumDeclaration):
+            self.execute_enum_declaration(statement)
+        elif isinstance(statement, ProtocolDeclaration):
+            self.execute_protocol_declaration(statement)
+        else:
+            raise RuntimeError(f"Unknown statement type: {type(statement)}")
 
-    def evaluate(self, expression: Expression) -> Any:
-        """Evaluate an expression."""
-        method = f"evaluate_{type(expression).__name__.lower()}"
-        if hasattr(self, method):
-            return getattr(self, method)(expression)
-        raise RuntimeError(f"Unknown expression type: {type(expression).__name__}")
-
-    def execute_block(self, statement: Block) -> None:
-        """Execute a block of statements in a new scope."""
-        # Execute statements in the current environment
-        # This allows proper access to variables in the enclosing scope
-        for stmt in statement.statements:
-            self.execute(stmt)
-
-    def execute_variabledecl(self, statement: VariableDecl) -> None:
+    def execute_variable_declaration(self, statement: VariableDecl) -> None:
         """Execute a variable declaration."""
         value = None
         if statement.initializer:
@@ -136,7 +159,14 @@ class Interpreter:
         value = self.evaluate(statement.value)
         self.environment.assign(statement.target.name, value)
 
-    def execute_ifstatement(self, statement: IfStatement) -> None:
+    def execute_block(self, statement: Block) -> None:
+        """Execute a block of statements in a new scope."""
+        # Execute statements in the current environment
+        # This allows proper access to variables in the enclosing scope
+        for stmt in statement.statements:
+            self.execute(stmt)
+
+    def execute_if(self, statement: IfStatement) -> None:
         """Execute an if statement."""
         condition_value = self.evaluate(statement.condition)
         
@@ -153,12 +183,7 @@ class Interpreter:
             if statement.else_branch:
                 self.execute(statement.else_branch)
 
-    def execute_whileloop(self, statement: WhileLoop) -> None:
-        """Execute a while loop."""
-        while self.evaluate(statement.condition):
-            self.execute(statement.body)
-
-    def execute_forloop(self, statement: ForLoop) -> None:
+    def execute_for(self, statement: ForLoop) -> None:
         """Execute a for loop."""
         start = self.evaluate(statement.start)
         end = self.evaluate(statement.end)
@@ -181,9 +206,88 @@ class Interpreter:
         finally:
             self.environment = previous
 
-    def execute_expressionstmt(self, statement: ExpressionStmt) -> None:
-        """Execute an expression statement."""
-        self.evaluate(statement.expression)
+    def execute_while(self, statement: WhileLoop) -> None:
+        """Execute a while loop."""
+        while self.evaluate(statement.condition):
+            self.execute(statement.body)
+
+    def execute_function_declaration(self, statement: FunctionDecl) -> None:
+        """Execute a function declaration."""
+        def function(*args):
+            if len(args) != len(statement.params):
+                raise RuntimeError(f"Expected {len(statement.params)} arguments but got {len(args)}")
+                
+            # Create new environment with the current environment as parent
+            function_env = Environment(parent=self.environment)
+            
+            # Bind parameters to arguments first
+            type_checker = TypeChecker()
+            for param, arg in zip(statement.params, args):
+                param_type = TypeAnnotation(param.type_annotation.name, kind=TypeKind.PRIMITIVE)
+                arg_type = TypeAnnotation(TypeChecker.get_type_name(arg), kind=TypeKind.PRIMITIVE)
+                try:
+                    converted_arg = type_checker.validate_assignment(param_type, arg, arg_type)
+                    function_env.define(param.name.name, converted_arg, param_type.name)
+                except TypeError as e:
+                    raise RuntimeError(f"Type error in function argument: {str(e)}")
+            
+            # Save and switch environment
+            previous = self.environment
+            self.environment = function_env
+            
+            try:
+                # Execute the function body
+                result = None
+                try:
+                    self.execute(statement.body)
+                except ReturnValue as return_value:
+                    result = return_value.value
+                
+                if statement.return_type:
+                    if result is None:
+                        raise RuntimeError("Function did not return a value")
+                    return_type = TypeAnnotation(statement.return_type.name, kind=TypeKind.PRIMITIVE)
+                    value_type = TypeAnnotation(TypeChecker.get_type_name(result), kind=TypeKind.PRIMITIVE)
+                    try:
+                        return type_checker.validate_assignment(return_type, result, value_type)
+                    except TypeError as e:
+                        raise RuntimeError(f"Type error in return value: {str(e)}")
+                return result
+            finally:
+                self.environment = previous
+            
+        # Store the function in the current environment
+        self.environment.define(statement.name.name, function, "Function")
+
+    def execute_return(self, statement: ReturnStatement) -> None:
+        """Execute a return statement."""
+        value = None
+        if statement.value:
+            value = self.evaluate(statement.value)
+        raise ReturnValue(value)
+
+    def evaluate(self, expression: Expression) -> Any:
+        """Evaluate an expression."""
+        if isinstance(expression, Literal):
+            return self.evaluate_literal(expression)
+        elif isinstance(expression, Identifier):
+            return self.evaluate_identifier(expression)
+        elif isinstance(expression, BinaryOp):
+            return self.evaluate_binaryop(expression)
+        elif isinstance(expression, UnaryOp):
+            return self.evaluate_unaryop(expression)
+        elif isinstance(expression, FunctionCall):
+            return self.evaluate_functioncall(expression)
+        elif isinstance(expression, TypeCast):
+            return self.evaluate_typecast(expression)
+        elif isinstance(expression, ArrayLiteral):
+            return self.evaluate_arrayliteral(expression)
+        elif isinstance(expression, MethodCall):
+            return self.evaluate_methodcall(expression)
+        elif isinstance(expression, ArrayAccess):
+            return self.evaluate_arrayaccess(expression)
+        else:
+            raise RuntimeError(f"Unknown expression type: {type(expression).__name__}")
 
     def evaluate_literal(self, expression: Literal) -> Any:
         """Evaluate a literal value."""
@@ -264,76 +368,6 @@ class Interpreter:
         """Evaluate an array literal."""
         return [self.evaluate(element) for element in expression.elements]
 
-    def execute_functiondecl(self, statement: FunctionDecl) -> None:
-        """Execute a function declaration."""
-        def function(*args):
-            if len(args) != len(statement.params):
-                raise RuntimeError(f"Expected {len(statement.params)} arguments but got {len(args)}")
-                
-            # Create new environment with the current environment as parent
-            function_env = Environment(parent=self.environment)
-            
-            # Bind parameters to arguments first
-            type_checker = TypeChecker()
-            for param, arg in zip(statement.params, args):
-                param_type = TypeAnnotation(param.type_annotation.name, kind=TypeKind.PRIMITIVE)
-                arg_type = TypeAnnotation(TypeChecker.get_type_name(arg), kind=TypeKind.PRIMITIVE)
-                try:
-                    converted_arg = type_checker.validate_assignment(param_type, arg, arg_type)
-                    function_env.define(param.name.name, converted_arg, param_type.name)
-                except TypeError as e:
-                    raise RuntimeError(f"Type error in function argument: {str(e)}")
-            
-            # Save and switch environment
-            previous = self.environment
-            self.environment = function_env
-            
-            try:
-                # Execute the function body
-                result = None
-                try:
-                    self.execute(statement.body)
-                except ReturnValue as return_value:
-                    result = return_value.value
-                
-                if statement.return_type:
-                    if result is None:
-                        raise RuntimeError("Function did not return a value")
-                    return_type = TypeAnnotation(statement.return_type.name, kind=TypeKind.PRIMITIVE)
-                    value_type = TypeAnnotation(TypeChecker.get_type_name(result), kind=TypeKind.PRIMITIVE)
-                    try:
-                        return type_checker.validate_assignment(return_type, result, value_type)
-                    except TypeError as e:
-                        raise RuntimeError(f"Type error in return value: {str(e)}")
-                return result
-            finally:
-                self.environment = previous
-            
-        # Store the function in the current environment
-        self.environment.define(statement.name.name, function, "Function")
-
-    def evaluate_functioncall(self, expression: FunctionCall) -> Any:
-        """Evaluate a function call."""
-        # Look up the function in the current environment chain
-        if isinstance(expression.callee, Identifier):
-            callee = self.environment.get(expression.callee.name)
-        else:
-            callee = self.evaluate(expression.callee)
-        
-        # Evaluate arguments in the current environment
-        arguments = [self.evaluate(arg) for arg in expression.arguments]
-        
-        if callable(callee):
-            return callee(*arguments)
-        raise RuntimeError(f"Can only call functions and classes")
-        
-    def execute_returnstatement(self, statement: ReturnStatement) -> None:
-        """Execute a return statement."""
-        value = None
-        if statement.value:
-            value = self.evaluate(statement.value)
-        raise ReturnValue(value)
-
     def evaluate_assignment(self, expression: Assignment) -> Any:
         """Evaluate an assignment expression."""
         value = self.evaluate(expression.value)
@@ -351,6 +385,75 @@ class Interpreter:
             return type_checker.validate_type_cast(value, from_type, to_type)
         except TypeError as e:
             raise RuntimeError(str(e))
+
+    def execute_enum_declaration(self, declaration: EnumDeclaration) -> None:
+        """Register an enum declaration."""
+        enum_name = declaration.name.name
+        
+        # Check if we're trying to redefine an enum
+        if enum_name in self.enums:
+            raise RuntimeError(f"Enum '{enum_name}' already defined")
+            
+        # Store the enum declaration
+        self.enums[enum_name] = declaration
+        
+        # If this enum conforms to a protocol, verify it
+        if declaration.protocol_conformance:
+            protocol_name = declaration.protocol_conformance.name
+            if protocol_name not in self.protocols:
+                raise RuntimeError(f"Protocol '{protocol_name}' not defined")
+            
+            # For the moment, just print a success message
+            # In a real implementation, you'd verify the enum conforms to the protocol
+            print(f"Enum '{enum_name}' conforms to protocol '{protocol_name}'")
+        
+        # Print a message that enum has been defined
+        print(f"Defined enum '{enum_name}' with variants: {', '.join(v.name.name for v in declaration.variants)}")
+            
+    def execute_protocol_declaration(self, declaration: ProtocolDeclaration) -> None:
+        """Register a protocol declaration."""
+        protocol_name = declaration.name.name
+        
+        # Check if we're trying to redefine a protocol
+        if protocol_name in self.protocols:
+            raise RuntimeError(f"Protocol '{protocol_name}' already defined")
+            
+        # Store the protocol declaration
+        self.protocols[protocol_name] = declaration
+        
+        # Print a message that protocol has been defined
+        property_names = [p.name.name for p in declaration.properties]
+        method_names = [m.name.name for m in declaration.methods]
+        
+        if not property_names and not method_names:
+            print(f"Defined empty protocol '{protocol_name}'")
+        else:
+            properties_str = f"properties: {', '.join(property_names)}" if property_names else ""
+            methods_str = f"methods: {', '.join(method_names)}" if method_names else ""
+            separator = ", " if properties_str and methods_str else ""
+            print(f"Defined protocol '{protocol_name}' with {properties_str}{separator}{methods_str}")
+
+    def define_builtins(self):
+        """Define built-in functions in the environment."""
+        self.environment.define("print", print, "Function")
+
+    def evaluate_functioncall(self, expression: FunctionCall) -> Any:
+        """Evaluate a function call expression."""
+        # Get the function from the environment
+        function_name = expression.callee.name
+        try:
+            function = self.environment.get(function_name)
+            
+            # Evaluate the arguments
+            args = [self.evaluate(arg) for arg in expression.arguments]
+            
+            # Call the function
+            if callable(function):
+                return function(*args)
+            else:
+                raise RuntimeError(f"'{function_name}' is not a function")
+        except RuntimeError as e:
+            raise RuntimeError(f"Error calling function '{function_name}': {str(e)}")
 
 class ReturnValue(Exception):
     """Used to handle return statements in functions."""

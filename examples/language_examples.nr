@@ -38,6 +38,56 @@ set: Set<String> = ("Bruh", "What", "Hell na")
 orderedSet: OSet<Int> = ("Bruh", "What", "Hell na")
 emptySet: Set<Int> = empty // equivalent to emtpySet: Set<Int> = ()
 
+
+protocol HttpResponse:
+    // Required property
+    statusCode: Int
+    
+    // Required method
+    getMessage() -> String
+::
+
+// Using symbol syntax
+enum Status <- HttpResponse:
+    Ok
+    NotFound
+    
+    // Implement required property
+    statusCode:
+        match self:
+            Ok => 200
+            NotFound => 404
+    ::  :: 
+
+    // Implement required method
+    getMessage():
+        match self:
+            Ok => "Success"
+            NotFound => "Resource not found"
+    ::  ::
+::
+
+
+
+// With structs
+struct Point conforms Hashable, Equatable:
+    x: Int
+    y: Int
+::
+
+// With classes and inheritance
+class Dog(Animal) <- Trainable:
+    bark() -> Void:
+        print("Woof!")
+    ::
+::
+
+// With union types
+union Result conforms Serializable:
+    Success(data: String)
+    Failure(error: String)
+::
+
 // if-else branching looks like this. I really like how the '::' demarkator is a natural structural indicator. 
 if condition:
     // Code block for true condition
@@ -143,3 +193,22 @@ lengthOfLIS(nums: [Int]):
 nums: [Int] = [10, 9, 2, 5, 3, 7, 101, 18]
 lis_length: Int = lengthOfLIS(nums)
 print("Length of Longest Increasing Subsequence:", lis_length)
+
+// Simple Example for Error Handling: 
+func readFile(path: String) throws -> String: 
+    file: File = File(path)
+    return file.read()
+::
+
+// Errors need to be handled somewhere if a function throws an error.   
+// Handle errors from throwing functions 
+within: 
+    content: String = try readFile("test.txt")
+    print(content)
+:: catch e: 
+    print("Error reading file:", e)
+::
+
+// If you don't want to handle the error, you can rethrow it
+content: String = raise readFile("test.txt")
+

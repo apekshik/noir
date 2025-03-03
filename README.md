@@ -1,4 +1,3 @@
-
 # The Noir Programming Language
 
 Noir is a modern programming language designed with clarity and safety in mind. It combines static typing with clean, expressive syntax to create a language that's powerful yet intuitive and approachable.
@@ -190,3 +189,65 @@ grab messageQueue:
 - Automatic lock release at the end of blocks
 - Support for conditional waiting with `await`
 - Prevention of common concurrency bugs through compile-time checks# noir
+
+## Enums and Protocols
+
+Noir now supports enums and protocols, inspired by Swift's protocol system which promotes composition over inheritance.
+
+### Enums
+
+Enums allow you to define a type that can have one of several variants:
+
+```noir
+enum Status:
+    Ok
+    NotFound
+    ServerError
+::
+```
+
+### Protocols
+
+Protocols define a set of requirements that conforming types must implement:
+
+```noir
+protocol Error:
+    getMessage() -> String
+::
+```
+
+An empty protocol can be defined using the `empty` keyword:
+
+```noir
+protocol Equatable:
+    empty
+::
+```
+
+### Protocol Conformance
+
+Enums can conform to protocols using the `<-` operator or the `conforms` keyword:
+
+```noir
+enum NetworkError <- Error:
+    ConnectionTimeout
+    InvalidResponse
+    ServerUnavailable
+::
+
+// Equivalent using 'conforms'
+enum ValidationError conforms Error:
+    InvalidInput
+    MissingField
+    TooLong
+::
+```
+
+### Future Enhancements
+
+In the future, we plan to implement:
+
+1. Protocol implementation for enums with methods and properties
+2. Pattern matching with `match` statements
+3. Protocol composition
+4. Default implementations for protocol methods

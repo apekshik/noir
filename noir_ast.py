@@ -118,6 +118,35 @@ class ArrayAccess(Expression):
     array: Expression
     index: Expression
 
+# New Enum support
+@dataclass
+class EnumVariant(Node):
+    name: Identifier
+    
+@dataclass
+class EnumDeclaration(Statement):
+    name: Identifier
+    variants: List[EnumVariant]
+    protocol_conformance: Optional[Identifier] = None  # For protocol conformance with <- or 'conforms'
+
+# New Protocol support
+@dataclass
+class ProtocolProperty(Node):
+    name: Identifier
+    type_annotation: TypeAnnotation
+
+@dataclass
+class ProtocolMethod(Node):
+    name: Identifier
+    params: List[FunctionParam]
+    return_type: Optional[TypeAnnotation]
+
+@dataclass
+class ProtocolDeclaration(Statement):
+    name: Identifier
+    properties: List[ProtocolProperty]
+    methods: List[ProtocolMethod]
+
 # Example generic type definitions
 LIST_TYPE = TypeAnnotation(
     name="List",
